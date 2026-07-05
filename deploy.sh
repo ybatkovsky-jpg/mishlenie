@@ -14,7 +14,7 @@ NC='\033[0m'
 
 PROJECT_DIR="/opt/mishlenie"
 SERVICE_NAME="mishlenie"
-REPO_URL="https://github.com/YOUR_USERNAME/mishlenie.git"
+REPO_URL="https://github.com/ybatkovsky-jpg/mishlenie.git"
 
 echo -e "${CYAN}"
 echo "╔══════════════════════════════════════════╗"
