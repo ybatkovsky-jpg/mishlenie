@@ -10,13 +10,20 @@ from core.models import Book, BookSection
 
 
 async def load_books(json_path: str) -> None:
-    """Load books from JSON file into the database."""
+    """Load books from JSON file into the database. Clears old data first."""
     with open(json_path, "r", encoding="utf-8") as f:
         books_data = json.load(f)
 
     await create_tables()
 
     async with async_session_factory() as session:
+        # Clear old data
+        from sqlalchemy import delete
+        await session.execute(delete(BookSection))
+        await session.execute(delete(Book))
+        await session.commit()
+        print("  Cleared old books")
+
         for book_data in books_data:
             book = Book(
                 title=book_data["title"],
