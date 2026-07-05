@@ -58,6 +58,7 @@ def dialogue_keyboard() -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="📝 Проверить понимание", callback_data="dial_check"),
     )
     builder.add(
+        InlineKeyboardButton(text="◀️ Предыдущая глава", callback_data="dial_prev"),
         InlineKeyboardButton(text="▶️ Следующая глава", callback_data="dial_next"),
     )
     builder.add(
@@ -344,6 +345,48 @@ async def on_dial_check(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
 
 
+# ──── Dialogue: previous chapter ────
+
+@router.callback_query(BookStates.in_dialogue, F.data == "dial_prev")
+async def on_dial_prev(callback: CallbackQuery, state: FSMContext) -> None:
+    data = await state.get_data()
+    book_id = data["book_id"]
+    current = data["current_section"]
+
+    if current <= 0:
+        await callback.answer("Это первая глава — некуда возвращаться")
+        return
+
+    new_current = current - 1
+
+    # Don't change progress — just go back for review
+    await state.update_data(current_section=new_current, dialogue_history=[])
+
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(Book).where(Book.id == book_id).options(selectinload(Book.sections))
+        )
+        book = result.scalar_one_or_none()
+        if not book:
+            return
+        sections = sorted(book.sections, key=lambda s: s.order_index)
+        prev_section = sections[new_current]
+        total = book.section_count
+
+    builder = InlineKeyboardBuilder()
+    builder.add(InlineKeyboardButton(text="▶️ Начать эту главу заново", callback_data="dial_start"))
+    builder.add(InlineKeyboardButton(text="📖 Выбрать другую книгу", callback_data="book_list"))
+    builder.adjust(1)
+
+    await callback.message.answer(
+        f"◀️ Возврат к главе {new_current + 1}.\n\n"
+        f"📌 <b>«{prev_section.title}»</b>\n"
+        f"📊 Позиция: {new_current + 1}/{total}",
+        reply_markup=builder.as_markup(),
+    )
+    await callback.answer()
+
+
 # ──── Dialogue: next chapter ────
 
 @router.callback_query(BookStates.in_dialogue, F.data == "dial_next")
@@ -352,7 +395,7 @@ async def on_dial_next(callback: CallbackQuery, state: FSMContext) -> None:
     book_id = data["book_id"]
     current = data["current_section"]
 
-    # Save progress
+    # Save progress (only advance, never regress)
     async with async_session_factory() as session:
         result = await session.execute(select(User).where(User.telegram_id == callback.from_user.id))
         user = result.scalar_one_or_none()
@@ -364,7 +407,8 @@ async def on_dial_next(callback: CallbackQuery, state: FSMContext) -> None:
             completed = json.loads(progress.completed_sections or "[]")
             if current not in completed:
                 completed.append(current)
-            progress.current_section = current + 1
+            # Progress only moves forward
+            progress.current_section = max(progress.current_section, current + 1)
             progress.completed_sections = json.dumps(completed)
             await session.commit()
 
@@ -402,8 +446,11 @@ async def on_dial_next(callback: CallbackQuery, state: FSMContext) -> None:
 
     builder = InlineKeyboardBuilder()
     builder.add(InlineKeyboardButton(text="▶️ Начать следующую главу", callback_data="dial_start"))
-    builder.add(InlineKeyboardButton(text="📖 Выбрать другую книгу", callback_data="book_list"))
-    builder.adjust(1)
+    builder.add(
+        InlineKeyboardButton(text="◀️ Предыдущая глава", callback_data="dial_prev"),
+        InlineKeyboardButton(text="📖 Другая книга", callback_data="book_list"),
+    )
+    builder.adjust(1, 2)
 
     await callback.message.answer(
         f"✅ Глава {current + 1} пройдена.\n\n"
