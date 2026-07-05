@@ -210,19 +210,24 @@ async def on_start_session(callback: CallbackQuery, state: FSMContext) -> None:
         section = sections[current]
 
     # Build prompt for AI tutor
-    section_text = section.text[:4000]  # Limit to avoid token overflow
-    user_msg = f"""Проведи обучающую сессию по следующей главе книги.
+    section_text = section.text[:8000]  # More context for better sessions
+    user_msg = f"""Проведи обучающую сессию строго по тексту главы ниже. НЕ ИСПОЛЬЗУЙ свои общие знания об этой книге или авторе — работай ТОЛЬКО с предоставленным текстом.
 
 Книга: {book.title}
 Автор: {book.author or 'неизвестен'}
 Вид мышления: {book.thinking_type or 'общее'}
 Глава {current + 1} из {book.section_count}: {section.title}
 
-Содержание главы:
+=== ТЕКСТ ГЛАВЫ (единственный источник) ===
 {section_text}
+=== КОНЕЦ ТЕКСТА ===
 
-Следуй структуре: цели → теория → примеры → вопросы → кейс.
-Не добавляй информацию, которой нет в тексте главы. Если материал неполный — сделай оговорку."""
+Структура сессии: цели → теория → примеры → вопросы → кейс.
+ВАЖНО: 
+- Цитируй конкретные фразы из текста.
+- Если какого-то понятия нет в тексте — не придумывай, скажи «в тексте главы это не раскрыто».
+- Не ссылайся на другие главы или внешние источники.
+- Ты НЕ знаешь эту книгу, ты видишь только текст выше."""
 
     await callback.message.answer("⏳ Готовлю сессию...")
 
@@ -232,7 +237,7 @@ async def on_start_session(callback: CallbackQuery, state: FSMContext) -> None:
         {"role": "user", "content": user_msg},
     ]
 
-    response = await ai_service.chat(messages, temperature=0.7, max_tokens=2048)
+    response = await ai_service.chat(messages, temperature=0.5, max_tokens=3000)
 
     await callback.message.answer(response, reply_markup=answer_keyboard())
     await state.set_state(BookStates.answering)

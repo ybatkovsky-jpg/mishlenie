@@ -246,7 +246,39 @@ def split_into_sections(text: str, title: str) -> list[dict]:
                 chunk = text[start:end].strip()
                 header = match.group(1).strip()[:100]
                 sections.append({"title": header, "text": chunk})
-            return sections
+
+            # Merge tiny sections (< 200 chars) with next section
+            merged = []
+            i = 0
+            while i < len(sections):
+                if len(sections[i]["text"]) < 200 and i + 1 < len(sections):
+                    # Merge with next
+                    sections[i+1]["text"] = sections[i]["text"] + "\n" + sections[i+1]["text"]
+                    sections[i+1]["title"] = sections[i]["title"] + " → " + sections[i+1]["title"]
+                else:
+                    merged.append(sections[i])
+                i += 1
+
+            # Also merge sections that are too large (> 100K chars) by splitting them further
+            final = []
+            for sec in merged:
+                if len(sec["text"]) > 100000:
+                    # Try to find sub-headings within the large section
+                    sub_pattern = r"\n\s*([А-ЯA-Z][^\n]{10,80})\n"
+                    sub_matches = list(re.finditer(sub_pattern, sec["text"]))
+                    if len(sub_matches) >= 2:
+                        for j, sm in enumerate(sub_matches):
+                            s_start = sm.start()
+                            s_end = sub_matches[j+1].start() if j+1 < len(sub_matches) else len(sec["text"])
+                            chunk = sec["text"][s_start:s_end].strip()
+                            if len(chunk) > 500:
+                                final.append({"title": sm.group(1).strip()[:100], "text": chunk})
+                    else:
+                        final.append(sec)
+                else:
+                    final.append(sec)
+
+            return final if final else merged
 
     # No chapters found — return whole text
     return [{"title": title, "text": text[:500000]}]  # Limit to 500k chars
