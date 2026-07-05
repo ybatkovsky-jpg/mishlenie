@@ -115,19 +115,95 @@ def parse_fb2(filepath: Path) -> dict:
 
 
 def parse_pdf(filepath: Path) -> dict:
-    """Parse PDF using PyMuPDF (fitz)."""
-    import fitz  # pymupdf
+    """Parse PDF using PyMuPDF (fitz). Uses TOC if available, falls back to pattern splitting."""
+    import fitz
 
     doc = fitz.open(str(filepath))
+    title = filepath.stem
+    author = doc.metadata.get("author", "") or ""
+
+    # Try TOC first
+    toc = doc.get_toc()
+    sections = []
+
+    if toc and len(toc) >= 5:
+        # Use TOC for smart chapter splitting
+        chapters = []
+        # Build a map: page -> best subtitle (for chapters named just "1", "2", etc.)
+        page_subtitles = {}
+        for level, t_title, page in toc:
+            if level == 3 and page > 0:
+                existing = page_subtitles.get(page, "")
+                if len(t_title) > len(existing):
+                    page_subtitles[page] = t_title.strip()
+
+        for level, t_title, page in toc:
+            # Skip front matter
+            skip_keywords = [
+                "юридическ", "информаци", "выходные", "аннотаци",
+                "legal", "copyright", "выходны", "данные",
+            ]
+            if any(kw in t_title.lower() for kw in skip_keywords):
+                continue
+            # Keep level 1 and 2 entries
+            if level <= 2 and page > 0:
+                clean_title = t_title.strip()
+                # If title is just a number, try to find a subtitle
+                if clean_title.isdigit() and page in page_subtitles:
+                    subtitle = page_subtitles[page]
+                    if subtitle and not subtitle.isdigit():
+                        clean_title = f"{clean_title}. {subtitle}"
+                chapters.append((level, clean_title, page))
+
+        if len(chapters) >= 3:
+            # Get all page texts
+            page_texts = {}
+            for i, page in enumerate(doc):
+                page_texts[i] = page.get_text()
+
+            total_pages = len(doc)
+            for i, (level, ch_title, start_page) in enumerate(chapters):
+                # Start from 0-indexed page
+                start_idx = max(0, start_page - 1)
+
+                # End at next chapter's start page, or end of book
+                if i + 1 < len(chapters):
+                    end_page = chapters[i + 1][2]
+                    end_idx = max(start_idx, end_page - 1)
+                else:
+                    end_idx = total_pages
+
+                # Collect text from this page range
+                chapter_text_parts = []
+                for p_idx in range(start_idx, min(end_idx + 1, total_pages)):
+                    if p_idx in page_texts and page_texts[p_idx].strip():
+                        chapter_text_parts.append(page_texts[p_idx])
+
+                chapter_text = "\n".join(chapter_text_parts)
+                if len(chapter_text.strip()) > 100:
+                    sections.append({
+                        "title": ch_title[:100],
+                        "text": chapter_text,
+                    })
+
+            if sections:
+                doc.close()
+                return {
+                    "title": title,
+                    "author": author,
+                    "format": "pdf",
+                    "sections": sections,
+                    "section_count": len(sections),
+                    "total_chars": sum(len(s["text"]) for s in sections),
+                }
+
+    # Fallback: no TOC or TOC didn't work — use pattern splitting
     full_text = ""
     for page in doc:
         full_text += page.get_text() + "\n"
 
-    title = filepath.stem
-    author = doc.metadata.get("author", "") or ""
-
-    # Try to split into chapters
     sections = split_into_sections(full_text, title)
+    doc.close()
 
     return {
         "title": title,
