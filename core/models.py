@@ -97,3 +97,56 @@ class ConversationEntry(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     user: Mapped["User"] = relationship(back_populates="conversation_history")
+
+
+class Book(Base):
+    """Parsed book for the /book learning mode."""
+
+    __tablename__ = "books"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    title: Mapped[str] = mapped_column(String(512), nullable=False)
+    author: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    thinking_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    format: Mapped[str | None] = mapped_column(String(16), nullable=True)  # pdf, fb2, doc, rtf
+    total_chars: Mapped[int] = mapped_column(Integer, default=0)
+    section_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    sections: Mapped[list["BookSection"]] = relationship(
+        back_populates="book", cascade="all, delete-orphan"
+    )
+
+
+class BookSection(Base):
+    """A chapter/section within a parsed book."""
+
+    __tablename__ = "book_sections"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    book_id: Mapped[str] = mapped_column(String(36), ForeignKey("books.id"), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(512), nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    order_index: Mapped[int] = mapped_column(Integer, default=0)
+
+    book: Mapped["Book"] = relationship(back_populates="sections")
+
+
+class BookProgress(Base):
+    """User progress through a book: which sections are completed."""
+
+    __tablename__ = "book_progress"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    book_id: Mapped[str] = mapped_column(String(36), ForeignKey("books.id"), nullable=False)
+    current_section: Mapped[int] = mapped_column(Integer, default=0)  # 0-index
+    completed_sections: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON list
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)

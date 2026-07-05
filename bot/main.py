@@ -59,12 +59,14 @@ async def main() -> None:
     from bot.handlers.feedback import router as feedback_router
     from bot.handlers.combined import router as combined_router
     from bot.handlers.mindfulness import router as mindfulness_router
+    from bot.handlers.book import router as book_router
 
     dp.include_router(start_router)
     dp.include_router(training_router)
     dp.include_router(feedback_router)
     dp.include_router(combined_router)
     dp.include_router(mindfulness_router)
+    dp.include_router(book_router)
 
     logger.info("Starting bot polling...")
     await dp.start_polling(bot)
