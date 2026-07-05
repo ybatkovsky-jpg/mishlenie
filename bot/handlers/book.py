@@ -69,9 +69,8 @@ def answer_keyboard() -> "InlineKeyboardMarkup":
     from aiogram.utils.keyboard import InlineKeyboardBuilder
 
     builder = InlineKeyboardBuilder()
-    builder.add(InlineKeyboardButton(text="✍️ Ответить", callback_data="book_answer"))
-    builder.add(InlineKeyboardButton(text="⏩ Пропустить", callback_data="book_skip"))
-    builder.adjust(2)
+    builder.add(InlineKeyboardButton(text="⏩ Пропустить главу", callback_data="book_skip"))
+    builder.adjust(1)
     return builder.as_markup()
 
 
@@ -240,6 +239,7 @@ async def on_start_session(callback: CallbackQuery, state: FSMContext) -> None:
     response = await ai_service.chat(messages, temperature=0.5, max_tokens=3000)
 
     await callback.message.answer(response, reply_markup=answer_keyboard())
+    await callback.message.answer("✍️ <b>Напишите ваш ответ</b> на вопросы и кейс выше. Или нажмите «Пропустить главу».")
     await state.set_state(BookStates.answering)
 
 
