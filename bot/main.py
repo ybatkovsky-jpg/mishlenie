@@ -68,6 +68,16 @@ async def main() -> None:
     dp.include_router(mindfulness_router)
     dp.include_router(book_router)
 
+    # Register bot commands (shows in Telegram menu)
+    from aiogram.types import BotCommand, BotCommandScopeDefault
+
+    commands = [
+        BotCommand(command="start", description="🔄 Начать/перезапустить тренировку"),
+        BotCommand(command="book", description="📚 Обучение по книгам (15 книг)"),
+    ]
+    await bot.set_my_commands(commands, scope=BotCommandScopeDefault())
+    logger.info("Bot commands registered")
+
     logger.info("Starting bot polling...")
     await dp.start_polling(bot)
 
