@@ -1,6 +1,7 @@
 """DeepSeek API client wrapper — manages chat and reasoner model calls."""
 
 import logging
+import re
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -52,6 +53,7 @@ class AIService:
         )
 
         content = response.choices[0].message.content or ""
+        content = self._clean_markdown(content)
         logger.info("Received response from DeepSeek, length=%d chars", len(content))
         return content
 
@@ -258,6 +260,17 @@ class AIService:
     def estimate_words(text: str) -> int:
         """Rough word count for Russian text."""
         return len(text.split())
+
+    @staticmethod
+    def _clean_markdown(text: str) -> str:
+        """Remove Markdown formatting that Telegram HTML mode can't render."""
+        # Remove ### headers (keep the text)
+        text = re.sub(r'^#{1,4}\s+', '', text, flags=re.MULTILINE)
+        # Remove **bold** → bold
+        text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
+        # Remove __underline__
+        text = re.sub(r'__(.+?)__', r'\1', text)
+        return text
 
 
 # Singleton
