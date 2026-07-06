@@ -52,6 +52,9 @@ async def cmd_daily(message: Message, state: FSMContext) -> None:
         now = datetime.now(UTC)
         if user.last_daily_at:
             last = user.last_daily_at
+            # Handle naive datetime from old DB
+            if last.tzinfo is None:
+                last = last.replace(tzinfo=UTC)
             if last.date() == now.date():
                 streak_text = (
                     f"🔥 Серия: <b>{user.daily_streak}</b> дн. подряд"

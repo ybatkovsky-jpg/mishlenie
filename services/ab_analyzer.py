@@ -2,7 +2,7 @@
 
 import hashlib
 import logging
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,7 +30,7 @@ class ABAnalyzerService:
         Returns dict with avg_score, count, avg_answer_length for each variant.
         """
         # Get sessions from last 30 days with prompt_version set
-        cutoff = datetime.now() - timedelta(days=30)
+        cutoff = datetime.now(UTC) - timedelta(days=30)
 
         result_a = await session.execute(
             select(

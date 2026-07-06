@@ -32,10 +32,17 @@ class UserSegmenterService:
         if not sessions:
             return "unknown"
 
-        # Calculate metrics
+        # Helper to safely get days difference (handle naive datetimes from old DB)
+        def safe_days_diff(dt1: datetime, dt2: datetime) -> int:
+            if dt1.tzinfo is None:
+                dt1 = dt1.replace(tzinfo=UTC)
+            if dt2.tzinfo is None:
+                dt2 = dt2.replace(tzinfo=UTC)
+            return abs((dt1 - dt2).days)
+
         first_session = sessions[0].created_at
         last_session = sessions[-1].created_at
-        total_days = max(1, (now - first_session).days)
+        total_days = max(1, safe_days_diff(now, first_session))
 
         # Active days (unique dates with activity)
         active_dates = {s.created_at.date() for s in sessions}
@@ -43,12 +50,21 @@ class UserSegmenterService:
         active_ratio = active_days / total_days
 
         # Average session length (sessions per active day)
+        # Fix naive datetimes in sessions for comparison
+        def ensure_utc(dt: datetime) -> datetime:
+            return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt
+
+        active_dates = {ensure_utc(s.created_at).date() for s in sessions}
+        active_days = len(active_dates)
         avg_sessions_per_day = len(sessions) / max(1, active_days)
 
         # Retention: did they come back after 7+ days?
         returned_after_gap = False
         for i in range(1, len(sessions)):
-            gap = (sessions[i].created_at - sessions[i-1].created_at).days
+            gap = safe_days_diff(
+                ensure_utc(sessions[i].created_at),
+                ensure_utc(sessions[i-1].created_at),
+            )
             if gap >= 7 and i > 2:
                 returned_after_gap = True
                 break

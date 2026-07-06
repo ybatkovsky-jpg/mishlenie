@@ -72,6 +72,19 @@ class SpacedRepetitionService:
         )
         return list(result.scalars().all())
 
+    async def get_due_count(
+        self, session: AsyncSession, user: User
+    ) -> int:
+        """Get count of due reviews for display."""
+        now = datetime.now(UTC)
+        result = await session.execute(
+            select(ReviewItem).where(
+                ReviewItem.user_id == user.id,
+                ReviewItem.next_review_at <= now,
+            )
+        )
+        return len(list(result.scalars().all()))
+
     async def complete_review(
         self,
         session: AsyncSession,
