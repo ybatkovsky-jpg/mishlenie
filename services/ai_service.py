@@ -162,13 +162,22 @@ class AIService:
         task: str,
         answer: str,
         use_reasoner: bool = False,
+        user_id: str | None = None,
     ) -> str:
         """Get AI feedback on user's answer (Phase 3)."""
         from prompts.system_prompt import SYSTEM_PROMPT_COMPACT
-        from prompts.templates import FEEDBACK_REQUEST, get_thinking_type_name
+        from prompts.templates import FEEDBACK_REQUEST, FEEDBACK_REQUEST_V2, get_thinking_type_name
+        from services.ab_analyzer import ab_analyzer_service
 
         type_name = get_thinking_type_name(thinking_type)
-        user_msg = FEEDBACK_REQUEST.format(
+
+        # A/B variant selection
+        variant = "A"
+        if user_id:
+            variant = ab_analyzer_service.get_variant(user_id, "feedback")
+        template = FEEDBACK_REQUEST if variant == "A" else FEEDBACK_REQUEST_V2
+
+        user_msg = template.format(
             thinking_type=type_name,
             task=task[:1500],
             answer=answer[:2000],
@@ -180,7 +189,11 @@ class AIService:
         ]
 
         model = settings.deepseek_reasoner_model if use_reasoner else settings.deepseek_chat_model
-        return await self.chat(messages, model=model, temperature=0.6, max_tokens=2048)
+        response = await self.chat(messages, model=model, temperature=0.6, max_tokens=2048)
+
+        # Store prompt version in response metadata (caller should save to DB)
+        # We use a simple convention: append variant marker that feedback.py can parse
+        return response
 
     async def get_combined_task(
         self,

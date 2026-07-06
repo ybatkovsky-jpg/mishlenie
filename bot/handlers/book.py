@@ -450,6 +450,14 @@ async def on_dial_next(callback: CallbackQuery, state: FSMContext) -> None:
         InlineKeyboardButton(text="◀️ Предыдущая глава", callback_data="dial_prev"),
         InlineKeyboardButton(text="📖 Другая книга", callback_data="book_list"),
     )
+    # Book-training bridge: offer a task based on the chapter
+    if book and book.thinking_type:
+        builder.add(
+            InlineKeyboardButton(
+                text=f"🎯 Задание на {book.thinking_type} по мотивам главы",
+                callback_data=f"book_task_{book.id}",
+            )
+        )
     builder.adjust(1, 2)
 
     await callback.message.answer(
@@ -522,6 +530,71 @@ async def on_dialogue_message(message: Message, state: FSMContext) -> None:
 @router.callback_query(F.data == "book_list")
 async def on_back_to_list(callback: CallbackQuery, state: FSMContext) -> None:
     await cmd_book(callback.message, state)
+    await callback.answer()
+
+
+@router.callback_query(BookStates.in_dialogue, F.data.startswith("book_task_"))
+async def on_book_task(callback: CallbackQuery, state: FSMContext) -> None:
+    """Generate a training task based on the current book chapter."""
+    data = await state.get_data()
+    book_id = data.get("book_id", "")
+    section_text = data.get("section_text", "")
+    section_title = data.get("section_title", "")
+
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(Book).where(Book.id == book_id)
+        )
+        book = result.scalar_one_or_none()
+        if not book:
+            await callback.answer("Книга не найдена")
+            return
+
+        result = await session.execute(select(User).where(User.telegram_id == callback.from_user.id))
+        user = result.scalar_one_or_none()
+        if not user:
+            return
+
+    thinking_type = book.thinking_type or "analytical"
+
+    # Generate training task with book context
+    task_prompt = f"""Придумай практическое задание по виду мышления «{thinking_type}», 
+основанное на идеях из главы «{section_title}» книги «{book.title}».
+
+Контекст из главы (кратко): {section_text[:1000]}
+
+Задание должно быть реалистичным сценарием из жизни/работы, 
+где нужно применить концепции из главы. Не упоминай книгу прямо — 
+сделай задание самодостаточным.
+
+Формат: 🎯 заголовок → сценарий → 💬 вопрос.
+НЕ используй Markdown."""
+
+    from prompts.book_tutor import BOOK_TUTOR_COMPACT
+
+    await callback.message.answer("⏳ Готовлю задание по мотивам главы...")
+    response = await ai_service.chat(
+        [
+            {"role": "system", "content": BOOK_TUTOR_COMPACT},
+            {"role": "user", "content": task_prompt},
+        ],
+        temperature=0.7, max_tokens=1200,
+    )
+
+    # Store task info and switch to training FSM
+    from bot.keyboards import continue_keyboard
+
+    await state.update_data(
+        current_thinking_type=thinking_type,
+        current_task=response,
+        current_scores=data.get("current_scores", {}),
+        sphere=user.sphere,
+    )
+    await callback.message.answer(response, reply_markup=continue_keyboard())
+
+    # Switch FSM to training state
+    from bot.states import TrainerStates
+    await state.set_state(TrainerStates.training_task)
     await callback.answer()
 
 

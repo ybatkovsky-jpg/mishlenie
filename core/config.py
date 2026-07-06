@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     # Database
     database_url: str = "sqlite+aiosqlite:///mishlenie.db"
 
+    # Redis (for FSM persistence and AI cache)
+    redis_url: str = "redis://localhost:6379"
+
     # App
     log_level: str = "INFO"
 

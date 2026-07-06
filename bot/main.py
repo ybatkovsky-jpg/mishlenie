@@ -8,6 +8,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.fsm.storage.redis import RedisStorage
 
 from core.config import settings
 from core.database import create_tables
@@ -25,6 +26,19 @@ def setup_logging() -> None:
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("openai").setLevel(logging.WARNING)
     logging.getLogger("aiogram").setLevel(logging.WARNING)
+
+
+def create_storage():
+    """Create FSM storage: Redis if available, fallback to Memory."""
+    try:
+        storage = RedisStorage.from_url(settings.redis_url)
+        logging.getLogger(__name__).info("Using RedisStorage for FSM persistence")
+        return storage
+    except Exception:
+        logging.getLogger(__name__).warning(
+            "Redis unavailable, falling back to MemoryStorage (FSM state will be lost on restart)"
+        )
+        return MemoryStorage()
 
 
 async def main() -> None:
@@ -50,7 +64,7 @@ async def main() -> None:
         token=settings.telegram_bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
-    storage = MemoryStorage()
+    storage = create_storage()
     dp = Dispatcher(storage=storage)
 
     # Register routers
@@ -60,6 +74,7 @@ async def main() -> None:
     from bot.handlers.combined import router as combined_router
     from bot.handlers.mindfulness import router as mindfulness_router
     from bot.handlers.book import router as book_router
+    from bot.handlers.daily import router as daily_router
 
     dp.include_router(start_router)
     dp.include_router(training_router)
@@ -67,6 +82,7 @@ async def main() -> None:
     dp.include_router(combined_router)
     dp.include_router(mindfulness_router)
     dp.include_router(book_router)
+    dp.include_router(daily_router)
 
     # Register bot commands (shows in Telegram menu)
     from aiogram.types import BotCommand, BotCommandScopeDefault
@@ -74,6 +90,7 @@ async def main() -> None:
     commands = [
         BotCommand(command="start", description="🔄 Начать/перезапустить тренировку"),
         BotCommand(command="book", description="📚 Обучение по книгам (15 книг)"),
+        BotCommand(command="daily", description="📅 Ежедневное задание (3-5 мин)"),
     ]
     await bot.set_my_commands(commands, scope=BotCommandScopeDefault())
     logger.info("Bot commands registered")

@@ -117,9 +117,34 @@ async def on_show_profile(callback: CallbackQuery, state: FSMContext) -> None:
             return
 
         scores = await profile_service.get_scores(session, user)
-        profile_text = profile_service.format_profile(scores)
+        levels = await profile_service.get_levels(session, user)
+        trends = await profile_service.get_trend(scores, session, user)
+        stats = await progress_service.get_stats(session, user)
 
-    await callback.message.answer(profile_text, reply_markup=thinking_type_keyboard(current_scores=scores))
+        from services.visualization import visualization_service
+        badges = await visualization_service.get_badges(session, user, stats, levels)
+
+    profile_text = profile_service.format_profile(scores, trends, levels)
+
+    # Add badges if any
+    badge_text = ""
+    if badges:
+        new_badges = [b for b in badges if b.get("new")]
+        badge_lines = ["\n🏆 <b>Достижения:</b>"]
+        for b in badges:
+            marker = " 🆕" if b in new_badges else ""
+            badge_lines.append(f"{b['name']}{marker} — {b['desc']}")
+        badge_text = "\n".join(badge_lines)
+
+    # Announce new badges
+    if new_badges:
+        for b in new_badges:
+            await callback.message.answer(f"🎉 Новое достижение: <b>{b['name']}</b> — {b['desc']}!")
+
+    await callback.message.answer(
+        profile_text + badge_text,
+        reply_markup=thinking_type_keyboard(current_scores=scores, current_trends=trends),
+    )
     await state.set_state(TrainerStates.training_choice)
 
 
@@ -177,7 +202,12 @@ async def start_combined_task(callback: CallbackQuery, state: FSMContext) -> Non
 
     await callback.message.answer("⏳ Готовлю комбинированное задание... (использую DeepSeek Reasoner)")
 
-    completed_types = ["analytical", "logical", "critical"]  # Will be dynamic later
+    # Use the user's actually completed thinking types
+    completed_types = stats["completed_type_names"]
+    # If somehow empty (shouldn't happen since we checked types_completed >= 3), fallback
+    if not completed_types:
+        completed_types = ["analytical", "logical", "critical"]
+
     task_text = await ai_service.get_combined_task(
         completed_types=completed_types,
         sphere=sphere,

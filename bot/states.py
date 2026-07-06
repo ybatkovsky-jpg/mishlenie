@@ -27,6 +27,7 @@ class TrainerStates(StatesGroup):
     # Phase 3: Feedback — user answered
     awaiting_answer = State()  # Waiting for user's answer
     feedback_view = State()  # Showing feedback, asking deepening question
+    retrieval_checkin = State()  # Retrieval practice: user recalls key principles
 
     # Phase 4: Combined tasks
     combined_task = State()

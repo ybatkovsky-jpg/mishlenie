@@ -34,6 +34,17 @@ class ProgressService:
         )
         types_completed = types_result.scalar() or 0
 
+        # Actual list of completed type names (for combined tasks)
+        names_result = await session.execute(
+            select(ExerciseSession.thinking_type)
+            .where(
+                ExerciseSession.user_id == user.id,
+                ExerciseSession.thinking_type.isnot(None),
+            )
+            .distinct()
+        )
+        completed_type_names = [row[0] for row in names_result.all() if row[0]]
+
         # Current streak (consecutive exercises with score >= 7)
         streak = await self._calculate_streak(session, user)
 
@@ -49,6 +60,7 @@ class ProgressService:
         return {
             "total_completed": total_completed,
             "types_completed": types_completed,
+            "completed_type_names": completed_type_names,
             "streak": streak,
             "avg_score": avg_score,
         }
@@ -84,6 +96,8 @@ class ProgressService:
         user_answer: str | None,
         ai_feedback: str | None,
         score: int | None,
+        prompt_version: str | None = None,
+        error_type: str | None = None,
     ) -> ExerciseSession:
         """Record an exercise session."""
         exercise = ExerciseSession(
@@ -94,8 +108,14 @@ class ProgressService:
             user_answer=user_answer,
             ai_feedback=ai_feedback,
             score=score,
+            prompt_version=prompt_version,
+            error_type=error_type,
         )
         session.add(exercise)
+
+        # Increment total sessions counter on user
+        user.total_sessions = (user.total_sessions or 0) + 1
+
         await session.commit()
         await session.refresh(exercise)
 
@@ -119,6 +139,41 @@ class ProgressService:
             .limit(limit)
         )
         return list(result.scalars().all())
+
+    async def get_consecutive_same_type(
+        self, session: AsyncSession, user: User, thinking_type: str
+    ) -> int:
+        """Count how many consecutive exercises of the same thinking type were done."""
+        result = await session.execute(
+            select(ExerciseSession)
+            .where(
+                ExerciseSession.user_id == user.id,
+                ExerciseSession.thinking_type == thinking_type,
+            )
+            .order_by(ExerciseSession.created_at.desc())
+            .limit(10)
+        )
+        sessions = list(result.scalars().all())
+        count = 0
+        for s in sessions:
+            if s.thinking_type == thinking_type:
+                count += 1
+            else:
+                break
+        return count
+
+    async def get_type_exercise_count(
+        self, session: AsyncSession, user: User, thinking_type: str
+    ) -> int:
+        """Total exercises completed for a specific thinking type."""
+        result = await session.execute(
+            select(func.count(ExerciseSession.id)).where(
+                ExerciseSession.user_id == user.id,
+                ExerciseSession.thinking_type == thinking_type,
+                ExerciseSession.score.isnot(None),
+            )
+        )
+        return result.scalar() or 0
 
 
 progress_service = ProgressService()

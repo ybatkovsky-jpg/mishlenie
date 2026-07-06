@@ -26,12 +26,16 @@ def sphere_keyboard() -> InlineKeyboardMarkup:
 def thinking_type_keyboard(
     show_combined: bool = False,
     current_scores: dict[str, int] | None = None,
+    current_trends: dict[str, str] | None = None,
+    show_random: bool = True,
 ) -> InlineKeyboardMarkup:
     """Keyboard for selecting a thinking type to train.
 
     Args:
         show_combined: Whether to show the "combined task" button.
         current_scores: Current scores to display next to type names.
+        current_trends: Trend indicators (↑/↓/→) for each type.
+        show_random: Whether to show "random type" button for interleaving.
     """
     builder = InlineKeyboardBuilder()
     type_names = [
@@ -45,9 +49,12 @@ def thinking_type_keyboard(
     ]
     for label, callback in type_names:
         key = callback.replace("type_", "")
+        parts = [label]
         if current_scores and key in current_scores:
-            label = f"{label} ({current_scores[key]}/10)"
-        builder.add(InlineKeyboardButton(text=label, callback_data=callback))
+            parts.append(f" {current_scores[key]}/10")
+        if current_trends and key in current_trends and current_trends[key]:
+            parts.append(f" {current_trends[key]}")
+        builder.add(InlineKeyboardButton(text="".join(parts), callback_data=callback))
 
     builder.adjust(2)
 
@@ -57,6 +64,11 @@ def thinking_type_keyboard(
                 text="🔄 Комбинированное задание",
                 callback_data="type_combined",
             )
+        )
+
+    if show_random:
+        builder.row(
+            InlineKeyboardButton(text="🎲 Случайный тип", callback_data="type_random"),
         )
 
     builder.row(
@@ -95,9 +107,22 @@ def continue_keyboard() -> InlineKeyboardMarkup:
 def after_feedback_keyboard(
     thinking_type: str | None = None,
     show_combined: bool = False,
+    suggest_interleaving: bool = False,
+    suggest_type: str | None = None,
 ) -> InlineKeyboardMarkup:
     """Keyboard shown after feedback — choose next action."""
     builder = InlineKeyboardBuilder()
+
+    if suggest_interleaving and suggest_type:
+        from prompts.templates import get_thinking_type_name
+        type_name = get_thinking_type_name(suggest_type)
+        builder.add(
+            InlineKeyboardButton(
+                text=f"🔀 Попробовать: {type_name} (рекомендуется)",
+                callback_data=f"type_{suggest_type}",
+            )
+        )
+
     builder.add(
         InlineKeyboardButton(text="📝 Следующее задание (тот же вид)", callback_data="next_same"),
         InlineKeyboardButton(text="🎯 Выбрать другой вид", callback_data="choose_type"),
@@ -111,6 +136,11 @@ def after_feedback_keyboard(
         )
     builder.add(
         InlineKeyboardButton(text="🧘 Осознанная пауза", callback_data="mindfulness"),
+    )
+    # Difficulty control buttons
+    builder.row(
+        InlineKeyboardButton(text="🔽 Проще", callback_data="diff_easier"),
+        InlineKeyboardButton(text="🔼 Сложнее", callback_data="diff_harder"),
     )
     builder.adjust(1)
     return builder.as_markup()

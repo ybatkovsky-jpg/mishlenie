@@ -11,7 +11,7 @@ from sqlalchemy import select
 from bot.keyboards import sphere_keyboard
 from bot.states import TrainerStates
 from core.database import async_session_factory
-from core.models import User
+from core.models import User, ReviewItem
 from services.profile_service import profile_service
 
 logger = logging.getLogger(__name__)
@@ -47,6 +47,15 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
             user.first_name = message.from_user.first_name or user.first_name
             await session.commit()
 
+        # Check for due spaced repetition reviews
+        from services.spaced_repetition import spaced_repetition_service
+        due_count = await spaced_repetition_service.get_due_count(session, user)
+
+        # Classify user segment (once per week)
+        from services.user_segmenter import user_segmenter_service
+        if await user_segmenter_service.should_reclassify(user):
+            await user_segmenter_service.classify_user(session, user)
+
     welcome_text = (
         "🧠 <b>Добро пожаловать в Тренажер Мышления!</b>\n\n"
         "Я помогу вам прокачать 7 видов мышления — от аналитического до креативного — "
@@ -60,8 +69,84 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
         "<b>В какой сфере вы хотите применять развитие мышления?</b>"
     )
 
-    await message.answer(welcome_text, reply_markup=sphere_keyboard())
+    # If there are due reviews, add a note
+    if due_count > 0:
+        from aiogram.types import InlineKeyboardButton
+        from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+        builder = InlineKeyboardBuilder()
+        for label, callback in [
+            ("💼 Работа", "sphere_работа"),
+            ("🚀 Бизнес", "sphere_бизнес"),
+            ("📚 Учёба", "sphere_учёба"),
+            ("❤️ Отношения", "sphere_отношения"),
+            ("💭 Личные решения", "sphere_личные решения"),
+            ("🌟 Общее развитие", "sphere_общее развитие"),
+        ]:
+            builder.add(InlineKeyboardButton(text=label, callback_data=callback))
+        builder.adjust(2)
+        builder.row(InlineKeyboardButton(
+            text=f"🔁 Повторить изученное ({due_count})", callback_data="review_due"
+        ))
+
+        await message.answer(welcome_text, reply_markup=builder.as_markup())
+    else:
+        await message.answer(welcome_text, reply_markup=sphere_keyboard())
+
     await state.set_state(TrainerStates.sphere_selection)
+
+
+@router.callback_query(TrainerStates.sphere_selection, F.data == "review_due")
+async def on_review_due(callback: CallbackQuery, state: FSMContext) -> None:
+    """User wants to review due spaced repetition items instead of starting new training."""
+    if not callback.from_user:
+        return
+
+    from services.ai_service import ai_service
+    from services.spaced_repetition import spaced_repetition_service
+
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(User).where(User.telegram_id == callback.from_user.id)
+        )
+        user = result.scalar_one_or_none()
+        if not user:
+            return
+
+        items = await spaced_repetition_service.get_due_reviews(session, user)
+        if not items:
+            await callback.answer("Нет заданий для повторения!")
+            return
+
+        # Generate a review task from due items
+        review_prompt = await spaced_repetition_service.generate_review_prompt(items)
+
+    await callback.message.answer("🔁 Готовлю задание на повторение...")
+
+    from prompts.system_prompt import SYSTEM_PROMPT_COMPACT
+    response = await ai_service.chat(
+        [
+            {"role": "system", "content": SYSTEM_PROMPT_COMPACT},
+            {"role": "user", "content": review_prompt},
+        ],
+        temperature=0.6, max_tokens=1024,
+    )
+
+    # Store review items in FSM for completion tracking
+    await state.update_data(
+        current_thinking_type="review",
+        current_task=response,
+        review_item_ids=[item.id for item in items],
+    )
+
+    await callback.message.answer(response)
+
+    from bot.keyboards import continue_keyboard
+    await callback.message.answer(
+        "✍️ <b>Ваш ответ:</b>",
+        reply_markup=continue_keyboard(),
+    )
+    await state.set_state(TrainerStates.training_task)
 
 
 @router.callback_query(TrainerStates.sphere_selection, F.data.startswith("sphere_"))

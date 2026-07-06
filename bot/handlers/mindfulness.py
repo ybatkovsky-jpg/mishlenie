@@ -54,7 +54,9 @@ async def on_mindfulness_to_profile(callback: CallbackQuery, state: FSMContext) 
         user = result.scalar_one_or_none()
         if user:
             scores = await profile_service.get_scores(session, user)
-            profile_text = profile_service.format_profile(scores)
+            levels = await profile_service.get_levels(session, user)
+            trends = await profile_service.get_trend(scores, session, user)
+            profile_text = profile_service.format_profile(scores, trends, levels)
         else:
             profile_text = "Профиль не найден."
 
