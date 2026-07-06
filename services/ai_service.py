@@ -1,5 +1,7 @@
 """DeepSeek API client wrapper — manages chat and reasoner model calls."""
 
+import hashlib
+import json
 import logging
 import re
 from collections.abc import AsyncGenerator
@@ -17,6 +19,23 @@ MAX_CONTEXT_MESSAGES = 20
 # Rough word limit for bot responses
 MAX_WORDS_RESPONSE = 450  # Slightly higher than 400 to allow for formatting chars
 
+# Redis cache (lazy import to avoid hard dependency)
+_redis = None
+
+
+def _get_redis():
+    """Lazy Redis connection. Returns None if unavailable."""
+    global _redis
+    if _redis is None:
+        try:
+            import redis.asyncio as aioredis
+            _redis = aioredis.from_url(settings.redis_url, decode_responses=True)
+            logger.info("Redis connected for AI cache: %s", settings.redis_url)
+        except Exception:
+            logger.warning("Redis unavailable — AI cache disabled")
+            _redis = False  # Sentinel to avoid retrying
+    return _redis if _redis is not False else None
+
 
 class AIService:
     """Manages communication with DeepSeek API."""
@@ -33,6 +52,7 @@ class AIService:
         model: str | None = None,
         temperature: float = 0.7,
         max_tokens: int = 2048,
+        use_cache: bool = False,
     ) -> str:
         """Send messages to DeepSeek and get the full response.
 
@@ -41,8 +61,24 @@ class AIService:
             model: Model name (defaults to deepseek-chat).
             temperature: Creativity level.
             max_tokens: Maximum tokens in the response.
+            use_cache: If True and temperature <= 0.3, cache the response in Redis.
         """
         model = model or settings.deepseek_chat_model
+
+        # Check Redis cache for low-temperature requests
+        cache_key = None
+        if use_cache and temperature <= 0.3:
+            r = _get_redis()
+            if r:
+                cache_key = f"ai_cache:{hashlib.md5(json.dumps(messages, sort_keys=True).encode()).hexdigest()}"
+                try:
+                    cached = await r.get(cache_key)
+                    if cached:
+                        logger.info("AI cache HIT for key=%s", cache_key[:16])
+                        return cached
+                except Exception:
+                    pass  # Cache read failed, proceed without
+
         logger.info("Sending request to DeepSeek model=%s messages_count=%d", model, len(messages))
 
         response = await self.client.chat.completions.create(
@@ -55,6 +91,17 @@ class AIService:
         content = response.choices[0].message.content or ""
         content = self._clean_markdown(content)
         logger.info("Received response from DeepSeek, length=%d chars", len(content))
+
+        # Cache the response
+        if cache_key:
+            r = _get_redis()
+            if r:
+                try:
+                    await r.setex(cache_key, 86400, content)  # 24h TTL
+                    logger.info("AI cache SET for key=%s", cache_key[:16])
+                except Exception:
+                    pass
+
         return content
 
     async def chat_stream(

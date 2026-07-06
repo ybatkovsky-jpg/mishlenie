@@ -8,6 +8,7 @@ pydantic-settings>=2.7,<3
 sqlalchemy[asyncio]>=2.0,<3
 aiosqlite>=0.20,<1
 asyncpg>=0.30,<1  # PostgreSQL async driver (production)
+alembic>=1.14,<2  # Database migrations
 
 # Redis
 redis>=5.0,<6  # FSM persistence & AI cache

@@ -341,6 +341,21 @@ async def on_random_type(callback: CallbackQuery, state: FSMContext) -> None:
 
 
 async def _start_next_with_difficulty(callback: CallbackQuery, state: FSMContext, difficulty: int) -> None:
+    """Generate next task at specified difficulty level."""
+    data = await state.get_data()
+    thinking_type = data.get("current_thinking_type", "analytical")
+    sphere = data.get("sphere", "общее развитие")
+
+    task_text = await ai_service.get_training_task(
+        thinking_type=thinking_type,
+        sphere=sphere,
+        difficulty=difficulty,
+        use_reasoner=False,
+    )
+
+    await state.update_data(current_task=task_text)
+    await callback.message.answer(task_text, reply_markup=_continue_keyboard())
+    await state.set_state(TrainerStates.training_task)
 
 
 # ──── Retrieval Practice check-in handler ────
