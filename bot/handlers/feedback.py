@@ -62,6 +62,8 @@ async def on_answer_received(message: Message, state: FSMContext) -> None:
 
     # Extract error type if present
     error_type = _extract_error_type(feedback_text)
+    # Strip the ERROR_TYPE marker from displayed feedback
+    feedback_text = _strip_error_marker(feedback_text)
 
     # Record error pattern if found
     if error_type and thinking_type != "combined":
@@ -468,6 +470,11 @@ def _extract_error_type(text: str) -> str | None:
         if error_type != "none":
             return error_type
     return None
+
+
+def _strip_error_marker(text: str) -> str:
+    """Remove [ERROR_TYPE: ...] marker from displayed text."""
+    return re.sub(r"\s*\[ERROR_TYPE:\s*\w+\]\s*", "", text).strip()
 
 
 def _get_variant(user_id: str) -> str:
